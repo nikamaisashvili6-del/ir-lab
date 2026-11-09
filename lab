@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""IR Lab command line. Standard library only."""
+
+import argparse
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+
+from attacks.registry import SCENARIOS  # noqa: E402
+
+STATE_PATH = ROOT / ".lab" / "state.json"
+F_UUID = "aae55af8-a3c4-4fad-ac70-4dfa00506615"
+F_DEVICE = "/dev/nvme0n1p1"
+F_DEFAULT_MOUNT = "/run/media/hannibal/linux F"
+MEM_MIN_GB = 6.5
+DISK_MIN_GB = 25
+
+
+def find_mount() -> str | None:
+    """Return where linux F is mounted, or None."""
+    result = subprocess.run(
+        ["findmnt", "-no", "TARGET", "-S", f"UUID={F_UUID}"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() or None
+
+
+def setup_hint(mount: str | None) -> str:
+    """The commands that make linux F usable by libvirt, for pasting by hand."""
+    target = mount or F_DEFAULT_MOUNT
+    parent = os.path.dirname(target)
+    lines = ["linux F must be mounted and reachable by libvirt. Run:"]
+    if mount is None:
+        lines.append(f"  udisksctl mount -b {F_DEVICE}")
+    lines.append(f"  sudo setfacl -m u:libvirt-qemu:x {shlex.quote(parent)}")
+    lines.append(f"  setfacl -m u:libvirt-qemu:x {shlex.quote(target)}")
+    return "\n".join(lines)
+
+
+def preflight(
+    mount: str | None,
+    free_gb: float,
+    mem_avail_gb: float,
+    first_build: bool,
+    acl_ok: bool,
+) -> list[str]:
+    """Return the reasons the lab cannot start. Empty means go."""
+    if mount is None:
+        return ["linux F is not mounted"]
+    problems = []
+    if not acl_ok:
+        problems.append("libvirt cannot reach linux F (ACL missing)")
+    if first_build and free_gb < DISK_MIN_GB:
+        problems.append(
+            f"first build needs {DISK_MIN_GB} GB free on linux F, found {free_gb:.1f} GB"
+        )
+    if mem_avail_gb < MEM_MIN_GB:
+        problems.append(f"need {MEM_MIN_GB} GB RAM available, found {mem_avail_gb:.1f} GB")
+    return problems
+
+
+def load_state() -> dict:
+    try:
+        return json.loads(STATE_PATH.read_text())
+    except FileNotFoundError:
+        return {"attacks": {}}
+
+
+def _save_state(state: dict) -> None:
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(state))
+
+
+def record_attack(name: str, when: str) -> None:
+    state = load_state()
+    state["attacks"][name] = when
+    _save_state(state)
+
+
+def clear_state() -> None:
+    _save_state({"attacks": {}})
+
+
+def build_alert_query(rule_ids, agent: str, since: str) -> dict:
+    """Search body for alerts from these rules, on this agent, since a time."""
+    return {
+        "size": 5,
+        "sort": [{"timestamp": "desc"}],
+        "query": {
+            "bool": {
+                "filter": [
+                    {"terms": {"rule.id": list(rule_ids)}},
+                    {"term": {"agent.name": agent}},
+                    {"range": {"timestamp": {"gte": since}}},
+                ]
+            }
+        },
+    }
+
+
+def check(name: str, query_fn, sleep=time.sleep, timeout: int = 120) -> int:
+    """Wait for the scenario's alert. 0 fired, 1 timed out, 2 no attack recorded."""
+    since = load_state()["attacks"].get(name)
+    if since is None:
+        print(f"No {name} attack recorded since the last reset. Run ./lab attack {name} first.")
+        return 2
+    scenario = SCENARIOS[name]
+    deadline = time.monotonic() + timeout
+    while True:
+        alerts = query_fn(scenario.rule_ids, scenario.agent, since)
+        if alerts:
+            print(f"Alert fired for {name} ({scenario.technique}).")
+            return 0
+        if time.monotonic() >= deadline:
+            print(f"No alert for {name} after {timeout} seconds.")
+            return 1
+        sleep(5)
+
+
+def cmd_up(_args) -> int:
+    mount = find_mount()
+    if mount is None:
+        print(setup_hint(None))
+        return 1
+    print("up: not built yet")
+    return 1
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lab", description="IR Lab")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("up", help="build or start the lab")
+    commands.add_parser("status", help="show VMs, agents and dashboard")
+    for name, text in (("attack", "run a scenario"), ("check", "confirm a scenario's alert fired")):
+        commands.add_parser(name, help=text).add_argument("scenario")
+    commands.add_parser("reset", help="return to the clean snapshot")
+    commands.add_parser("down", help="shut VMs down, keep everything")
+    commands.add_parser("destroy", help="remove the whole lab")
+    args = parser.parse_args(argv)
+
+    if args.command in ("attack", "check") and args.scenario not in SCENARIOS:
+        print(f"Unknown scenario {args.scenario!r}. Choose from: {', '.join(SCENARIOS)}")
+        return 2
+    if args.command == "up":
+        return cmd_up(args)
+    print(f"{args.command}: not built yet")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
