@@ -1,0 +1,19 @@
+---
+all:
+  children:
+    firewall:
+      hosts:
+        irlab-pfsense:
+          ansible_host: 10.21.0.1
+          ansible_user: admin
+    debian:
+      vars:
+        ansible_user: labadmin
+        ansible_ssh_private_key_file: "{{ playbook_dir }}/../.lab/id_ed25519"
+      hosts:
+        web01:
+          ansible_host: 10.21.0.10
+        office01:
+          ansible_host: 10.21.0.20
+        wazuh:
+          ansible_host: 10.21.0.30

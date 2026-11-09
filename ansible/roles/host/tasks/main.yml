@@ -1,0 +1,99 @@
+---
+- name: Create the local state directory
+  ansible.builtin.file:
+    path: "{{ lab_state_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Generate the lab SSH key
+  ansible.builtin.command:
+    argv: [ssh-keygen, -q, -t, ed25519, -N, "", -C, irlab, -f, "{{ lab_state_dir }}/id_ed25519"]
+    creates: "{{ lab_state_dir }}/id_ed25519"
+
+- name: Generate lab secrets once
+  ansible.builtin.copy:
+    dest: "{{ lab_state_dir }}/secrets.yml"
+    force: false
+    mode: "0600"
+    content: |
+      ---
+      pfsense_admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=24) }}"
+      wazuh_admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=24) }}aA1."
+      wazuh_agent_password: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=24) }}"
+
+- name: Create lab directories on linux F
+  ansible.builtin.file:
+    path: "{{ lab_root }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: ["", base, disks, iso]
+
+- name: Download the Debian cloud image
+  ansible.builtin.get_url:
+    url: "{{ debian_image_dir }}/{{ debian_image_name }}"
+    dest: "{{ lab_root }}/base/{{ debian_image_name }}"
+    checksum: "sha512:{{ debian_image_dir }}/SHA512SUMS"
+    mode: "0644"
+
+- name: Render network definitions
+  ansible.builtin.template:
+    src: "{{ item }}.xml.j2"
+    dest: "{{ lab_state_dir }}/{{ item }}.xml"
+    mode: "0600"
+  loop: "{{ irlab_networks }}"
+
+- name: List defined networks
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", net-list, --all, --name]
+  register: all_networks
+  changed_when: false
+
+- name: Define lab networks
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", net-define, "{{ lab_state_dir }}/{{ item }}.xml"]
+  loop: "{{ irlab_networks }}"
+  when: item not in all_networks.stdout_lines
+  changed_when: true
+
+- name: List active networks
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", net-list, --name]
+  register: active_networks
+  changed_when: false
+
+- name: Start lab networks
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", net-start, "{{ item }}"]
+  loop: "{{ irlab_networks }}"
+  when: item not in active_networks.stdout_lines
+  changed_when: true
+
+- name: Autostart lab networks
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", net-autostart, "{{ item }}"]
+  loop: "{{ irlab_networks }}"
+  changed_when: false
+
+- name: List storage pools
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", pool-list, --all, --name]
+  register: all_pools
+  changed_when: false
+
+- name: Define the lab pool
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", pool-define-as, irlab, dir, --target, "{{ lab_root }}/disks"]
+  when: "'irlab' not in all_pools.stdout_lines"
+  changed_when: true
+
+- name: List active storage pools
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", pool-list, --name]
+  register: active_pools
+  changed_when: false
+
+- name: Start the lab pool
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", pool-start, irlab]
+  when: "'irlab' not in active_pools.stdout_lines"
+  changed_when: true

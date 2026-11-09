@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -16,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 from attacks.registry import SCENARIOS  # noqa: E402
 
 STATE_PATH = ROOT / ".lab" / "state.json"
+VENV = ROOT / ".venv"
 F_UUID = "aae55af8-a3c4-4fad-ac70-4dfa00506615"
 F_DEVICE = "/dev/nvme0n1p1"
 F_DEFAULT_MOUNT = "/run/media/hannibal/linux F"
@@ -125,19 +127,75 @@ def check(name: str, query_fn, sleep=time.sleep, timeout: int = 120) -> int:
         sleep(5)
 
 
-def cmd_up(_args) -> int:
+def acl_ok(mount: str) -> bool:
+    """True when libvirt-qemu can traverse linux F and its parent directory."""
+    return all(_qemu_can_traverse(path) for path in (mount, os.path.dirname(mount)))
+
+
+def _qemu_can_traverse(path: str) -> bool:
+    result = subprocess.run(["getfacl", "-p", path], capture_output=True, text=True)
+    for line in result.stdout.splitlines():
+        if line.startswith("user:libvirt-qemu:"):
+            granted = line.split("#effective:")[-1] if "#effective:" in line else line
+            return "x" in granted.rsplit(":", 1)[-1]
+    return False
+
+
+def mem_available_gb() -> float:
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) / 1024**2
+    return 0.0
+
+
+def ensure_venv() -> None:
+    """Create the project venv with pinned tools if it does not exist yet."""
+    if (VENV / "bin" / "ansible-playbook").exists():
+        return
+    subprocess.run([sys.executable, "-m", "venv", str(VENV)], check=True)
+    subprocess.run(
+        [str(VENV / "bin" / "pip"), "install", "-q", "-r", str(ROOT / "requirements.txt")],
+        check=True,
+    )
+
+
+def run_ansible(tags: list[str] | None = None) -> int:
+    """Run the site playbook. lab_root goes as JSON because its path has a space."""
+    argv = [
+        str(VENV / "bin" / "ansible-playbook"),
+        "-i", "inventory.yml",
+        "site.yml",
+        "-e", json.dumps({"lab_root": f"{find_mount()}/ir-lab"}),
+    ]
+    if tags:
+        argv += ["--tags", ",".join(tags)]
+    return subprocess.run(argv, cwd=ROOT / "ansible").returncode
+
+
+def cmd_up(args) -> int:
     mount = find_mount()
     if mount is None:
         print(setup_hint(None))
         return 1
-    print("up: not built yet")
-    return 1
+    disks = Path(mount) / "ir-lab" / "disks"
+    first_build = not disks.is_dir() or not any(disks.iterdir())
+    free_gb = shutil.disk_usage(mount).free / 1024**3
+    problems = preflight(mount, free_gb, mem_available_gb(), first_build, acl_ok(mount))
+    if problems:
+        for problem in problems:
+            print(f"Cannot start: {problem}")
+        print(setup_hint(mount))
+        return 1
+    ensure_venv()
+    tags = args.tags.split(",") if args.tags else None
+    return run_ansible(tags)
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lab", description="IR Lab")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("up", help="build or start the lab")
+    up_parser = commands.add_parser("up", help="build or start the lab")
+    up_parser.add_argument("--tags", help="only these Ansible roles, comma separated")
     commands.add_parser("status", help="show VMs, agents and dashboard")
     for name, text in (("attack", "run a scenario"), ("check", "confirm a scenario's alert fired")):
         commands.add_parser(name, help=text).add_argument("scenario")

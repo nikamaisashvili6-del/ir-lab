@@ -1,0 +1,9 @@
+---
+lab_state_dir: "{{ playbook_dir }}/../.lab"
+virsh_uri: qemu:///system
+irlab_networks:
+  - irlab-wan
+  - irlab-lan
+  - irlab-mgmt
+debian_image_dir: https://cloud.debian.org/images/cloud/trixie/latest
+debian_image_name: debian-13-genericcloud-amd64.qcow2
