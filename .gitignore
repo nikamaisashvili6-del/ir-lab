@@ -1,0 +1,7 @@
+.claude/settings.local.json
+CLAUDE.local.md
+floorplan/
+.superpowers/
+.lab/
+.venv/
+__pycache__/
