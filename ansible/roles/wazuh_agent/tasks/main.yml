@@ -1,0 +1,59 @@
+---
+- name: Load lab secrets
+  ansible.builtin.include_vars:
+    file: "{{ lab_state_dir }}/secrets.yml"
+
+- name: Install the tools for the Wazuh repository
+  ansible.builtin.apt:
+    name: [gnupg, curl]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Make the apt keyrings folder
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Add the Wazuh signing key
+  ansible.builtin.get_url:
+    url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
+    dest: /etc/apt/keyrings/wazuh.asc
+    mode: "0644"
+
+- name: Add the Wazuh repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/wazuh.list
+    content: "deb [signed-by=/etc/apt/keyrings/wazuh.asc] https://packages.wazuh.com/4.x/apt/ stable main\n"
+    mode: "0644"
+  register: wazuh_repo
+
+- name: Install the pinned Wazuh agent
+  ansible.builtin.apt:
+    name: "wazuh-agent={{ wazuh_version }}-1"
+    state: present
+    update_cache: "{{ wazuh_repo.changed }}"
+  environment:
+    WAZUH_MANAGER: "{{ wazuh_manager_ip }}"
+    WAZUH_AGENT_NAME: "{{ inventory_hostname }}"
+    WAZUH_REGISTRATION_PASSWORD: "{{ wazuh_agent_password }}"
+
+- name: Hold the agent version so apt upgrades don't break it
+  ansible.builtin.dpkg_selections:
+    name: wazuh-agent
+    selection: hold
+
+- name: Add lab log sources and real-time file checks
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} IRLAB agent extras -->"
+    insertbefore: "</ossec_config>"
+    block: "{{ lookup('ansible.builtin.template', 'ossec-extra.conf.j2') }}"
+  notify: Restart wazuh-agent
+
+- name: Keep the agent running
+  ansible.builtin.service:
+    name: wazuh-agent
+    state: started
+    enabled: true

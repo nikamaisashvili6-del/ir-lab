@@ -9,8 +9,13 @@ debian_image_dir: https://cloud.debian.org/images/cloud/trixie/latest
 debian_image_name: debian-13-genericcloud-amd64.qcow2
 # The three Debian VMs. last_octet is the same on LAN (10.20.0.x) and mgmt (10.21.0.x).
 lab_vms:
-  - {name: web01, last_octet: 10, memory: 768, disk: 6G, image: "{{ debian_image_name }}"}
-  - {name: office01, last_octet: 20, memory: 512, disk: 6G, image: "{{ debian_image_name }}"}
-  - {name: wazuh, last_octet: 30, memory: 4096, disk: 20G, image: "{{ wazuh_image_name }}"}
-# Switched to the Debian 12 image in Task 5 if the pinned Wazuh release doesn't support 13.
-wazuh_image_name: "{{ debian_image_name }}"
+  - {name: web01, last_octet: 10, memory: 768, disk: 6G, image: "{{ debian_image_name }}", osinfo: debian12}
+  - {name: office01, last_octet: 20, memory: 512, disk: 6G, image: "{{ debian_image_name }}", osinfo: debian12}
+  - {name: wazuh, last_octet: 30, memory: 4096, disk: 20G, image: "{{ ubuntu_image_name }}", osinfo: ubuntu24.04}
+# Wazuh's server side officially supports Ubuntu, not Debian (docs checked 2026-11-12), so wazuh runs Ubuntu 24.04.
+ubuntu_image_dir: https://cloud-images.ubuntu.com/releases/noble/release
+ubuntu_image_name: ubuntu-24.04-server-cloudimg-amd64.img
+# Wazuh 4.14 line. The installer takes the newest 4.14.x; agents are pinned to the same full version.
+wazuh_branch: "4.14"
+wazuh_version: "4.14.10"
+wazuh_manager_ip: 10.20.0.30

@@ -57,7 +57,7 @@
       - --network
       - "network=irlab-mgmt,model=virtio,mac={{ vm_mgmt_mac }}"
       - --osinfo
-      - debian12
+      - "{{ vm.osinfo }}"
       - --cloud-init
       - "user-data={{ lab_state_dir }}/{{ vm.name }}-user-data,network-config={{ lab_state_dir }}/{{ vm.name }}-network-config"
       - --graphics

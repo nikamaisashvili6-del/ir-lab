@@ -35,6 +35,13 @@
     checksum: "sha512:{{ debian_image_dir }}/SHA512SUMS"
     mode: "0644"
 
+- name: Download the Ubuntu cloud image for wazuh
+  ansible.builtin.get_url:
+    url: "{{ ubuntu_image_dir }}/{{ ubuntu_image_name }}"
+    dest: "{{ lab_root }}/base/{{ ubuntu_image_name }}"
+    checksum: "sha256:{{ ubuntu_image_dir }}/SHA256SUMS"
+    mode: "0644"
+
 - name: Render network definitions
   ansible.builtin.template:
     src: "{{ item }}.xml.j2"

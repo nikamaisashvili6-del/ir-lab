@@ -1,0 +1,12 @@
+{% if inventory_hostname == 'web01' %}
+<localfile>
+  <log_format>apache</log_format>
+  <location>/var/log/nginx/access.log</location>
+</localfile>
+{% endif %}
+<syscheck>
+  <directories realtime="yes" check_all="yes" report_changes="yes">/etc/passwd</directories>
+{% if inventory_hostname == 'web01' %}
+  <directories realtime="yes" check_all="yes" report_changes="yes">/var/www/html</directories>
+{% endif %}
+</syscheck>

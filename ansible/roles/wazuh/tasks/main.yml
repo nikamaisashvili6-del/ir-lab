@@ -1,0 +1,118 @@
+---
+# Wazuh all-in-one (manager + indexer + dashboard) on one 4 GB VM.
+- name: Load lab secrets
+  ansible.builtin.include_vars:
+    file: "{{ lab_state_dir }}/secrets.yml"
+
+- name: Check whether Wazuh is already installed
+  ansible.builtin.stat:
+    path: /var/ossec/bin/wazuh-control
+  register: wazuh_installed
+
+- name: Download the Wazuh installer
+  ansible.builtin.get_url:
+    url: "https://packages.wazuh.com/{{ wazuh_branch }}/wazuh-install.sh"
+    dest: /root/wazuh-install.sh
+    mode: "0700"
+  when: not wazuh_installed.stat.exists
+
+- name: Install Wazuh all-in-one (10-20 minutes)
+  ansible.builtin.command:
+    # -i skips the installer's hardware check: the lab gives it 4 GB, below the 8 GB it wants.
+    argv: [bash, /root/wazuh-install.sh, -a, -i]
+    chdir: /root
+  when: not wazuh_installed.stat.exists
+  changed_when: true
+
+- name: Cap the indexer heap at 1.5 GB
+  ansible.builtin.lineinfile:
+    path: /etc/wazuh-indexer/jvm.options
+    regexp: "^-Xm{{ item }}"
+    line: "-Xm{{ item }}1500m"
+  loop: [s, x]
+  notify: Restart wazuh-indexer
+
+- name: Set the dashboard admin password
+  ansible.builtin.command:
+    argv:
+      - bash
+      - /usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh
+      - -u
+      - admin
+      - -p
+      - "{{ wazuh_admin_password }}"
+    creates: /root/.irlab-admin-password-set
+  no_log: true
+  notify: Restart wazuh-manager
+
+- name: Remember that the admin password is set
+  ansible.builtin.file:
+    path: /root/.irlab-admin-password-set
+    state: touch
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Store the agent enrollment password
+  ansible.builtin.copy:
+    dest: /var/ossec/etc/authd.pass
+    content: "{{ wazuh_agent_password }}\n"
+    owner: root
+    group: wazuh
+    mode: "0640"
+  no_log: true
+  notify: Restart wazuh-manager
+
+- name: Require the password for agent enrollment
+  ansible.builtin.replace:
+    path: /var/ossec/etc/ossec.conf
+    regexp: "<use_password>no</use_password>"
+    replace: "<use_password>yes</use_password>"
+  notify: Restart wazuh-manager
+
+- name: Accept pfSense syslog on UDP 514, only from the firewall
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} IRLAB pfSense syslog -->"
+    insertbefore: "</ossec_config>"
+    block: |
+      <remote>
+        <connection>syslog</connection>
+        <port>514</port>
+        <protocol>udp</protocol>
+        <allowed-ips>10.20.0.1</allowed-ips>
+        <local_ip>{{ wazuh_manager_ip }}</local_ip>
+      </remote>
+  notify: Restart wazuh-manager
+
+- name: Apply config changes before talking to the indexer
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the indexer API
+  ansible.builtin.uri:
+    url: https://127.0.0.1:9200
+    user: admin
+    password: "{{ wazuh_admin_password }}"
+    force_basic_auth: true
+    validate_certs: false
+  register: indexer_up
+  until: indexer_up.status == 200
+  retries: 30
+  delay: 10
+  no_log: true
+
+- name: Delete alert indices after 7 days
+  ansible.builtin.uri:
+    url: https://127.0.0.1:9200/_plugins/_ism/policies/irlab-retention
+    method: PUT
+    user: admin
+    password: "{{ wazuh_admin_password }}"
+    force_basic_auth: true
+    validate_certs: false
+    body_format: json
+    body: "{{ lookup('ansible.builtin.file', 'retention-policy.json') }}"
+    # 409 = the policy already exists, which is fine on a re-run.
+    status_code: [200, 201, 409]
+  register: retention
+  changed_when: retention.status in [200, 201]
+  no_log: true
