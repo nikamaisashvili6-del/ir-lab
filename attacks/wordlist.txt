@@ -1,0 +1,12 @@
+123456
+password
+Password1
+qwerty
+letmein
+welcome
+admin
+jdoe
+Winter2025!
+Spring2026!
+Autumn2025!
+changeme

@@ -394,6 +394,18 @@ def destroy(confirm_fn=input) -> int:
     return 0
 
 
+def attack(name: str) -> int:
+    """Record the start time, then run the scenario from the venv (it needs paramiko)."""
+    ensure_venv()
+    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    record_attack(name, started)
+    print(f"Running {name} ({SCENARIOS[name].technique})...")
+    rc = subprocess.run([str(VENV / "bin" / "python"), "-m", "attacks", name], cwd=ROOT).returncode
+    if rc == 0:
+        print(f"Done. Now find it in the dashboard, or run ./lab check {name}.")
+    return rc
+
+
 def cmd_up(args) -> int:
     mount = find_mount()
     if mount is None:
@@ -445,6 +457,8 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "destroy":
         return destroy()
+    if args.command == "attack":
+        return attack(args.scenario)
     if args.command == "check":
         return check(args.scenario, query_wazuh)
     print(f"{args.command}: not built yet")
