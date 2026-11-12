@@ -70,7 +70,7 @@ def test_check_queries_the_scenarios_rules_since_attack_start(lab_cli):
         return [{"rule": {}}]
 
     lab_cli.check("ssh-bruteforce", query_fn=query, sleep=no_sleep)
-    assert seen == [(("5760", "5763", "5715"), "office01", "2026-11-09T10:00:00Z")]
+    assert seen == [(("5760", "5763", "5551"), "office01", "2026-11-09T10:00:00Z")]
 
 
 def test_query_filters_rules_agent_and_time(lab_cli):

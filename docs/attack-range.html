@@ -1,0 +1,298 @@
+<title>IR Lab Attack Range</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a SOC console — sticky status bar, topology strip, kill-chain, scenario cards.
+     Dark-first security-console identity; a clean light "analyst report" palette mirrors it. */
+  :root {
+    color-scheme: light;
+    --bg:        #eef1f6;
+    --panel:     #ffffff;
+    --panel-2:   #f5f7fb;
+    --ink:       #18202e;
+    --muted:     #5c6a7a;
+    --line:      #d8deea;
+    --accent:    #0d9488;
+    --accent-ink:#0b7d72;
+    --crit:      #d6314a;
+    --warn:      #b76b00;
+    --good:      #1a8a4e;
+    --mono:      "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --disp:      "Space Grotesk", system-ui, sans-serif;
+    --body:      "Inter", system-ui, sans-serif;
+    --shadow:    0 1px 2px rgba(20,30,50,.06), 0 8px 24px rgba(20,30,50,.06);
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      color-scheme: dark;
+      --bg:#080b11; --panel:#0f1420; --panel-2:#131a28; --ink:#e7eef7; --muted:#8a97ab;
+      --line:#20293a; --accent:#2dd4bf; --accent-ink:#5eead4; --crit:#ff5d6c; --warn:#ffb454;
+      --good:#3ddc84; --shadow:0 0 0 1px rgba(255,255,255,.02), 0 12px 40px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:#080b11; --panel:#0f1420; --panel-2:#131a28; --ink:#e7eef7; --muted:#8a97ab;
+    --line:#20293a; --accent:#2dd4bf; --accent-ink:#5eead4; --crit:#ff5d6c; --warn:#ffb454;
+    --good:#3ddc84; --shadow:0 0 0 1px rgba(255,255,255,.02), 0 12px 40px rgba(0,0,0,.5);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--body); line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding-block: 0 56px; }
+
+  /* header */
+  header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line); margin: 0 calc(-1 * max(16px, env(safe-area-inset-left,0px)));
+    padding: 12px max(16px, env(safe-area-inset-left,0px)); }
+  .hbar { max-width:1080px; margin:0 auto; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .brand { font-family: var(--disp); font-weight:700; letter-spacing:-.01em; font-size:1.05rem; }
+  .brand b { color: var(--accent-ink); }
+  .dot { width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 3px color-mix(in srgb,var(--good) 25%,transparent);display:inline-block;vertical-align:middle;margin-right:6px; }
+  .statuses { display:flex; gap:7px; flex-wrap:wrap; margin-left:auto; font-family:var(--mono); font-size:.72rem; }
+  .chip { border:1px solid var(--line); background:var(--panel); padding:3px 8px; border-radius:999px; color:var(--muted); }
+  .chip b { color: var(--ink); font-weight:500; }
+
+  /* hero */
+  .hero { padding: 34px 0 22px; }
+  .eyebrow { font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink); }
+  h1 { font-family:var(--disp); font-weight:700; letter-spacing:-.02em; font-size: clamp(1.7rem, 4.5vw, 2.6rem);
+       line-height:1.05; margin:.35em 0 .3em; text-wrap:balance; }
+  .lede { color:var(--muted); max-width:62ch; font-size:1.02rem; }
+  .meta-row { display:flex; gap:22px; flex-wrap:wrap; margin-top:18px; font-family:var(--mono); font-size:.78rem; color:var(--muted); }
+  .meta-row b { color:var(--ink); font-weight:500; }
+
+  /* topology */
+  .topo { background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow);
+          padding:16px; margin:22px 0; overflow-x:auto; }
+  .topo-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; min-width:460px; }
+  .node { background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .node .n { font-family:var(--disp); font-weight:600; }
+  .node .ip { font-family:var(--mono); font-size:.74rem; color:var(--accent-ink); }
+  .node .r { font-size:.78rem; color:var(--muted); }
+  .node.span3 { grid-column:1/-1; }
+  .node.attacker { border-color: color-mix(in srgb,var(--crit) 40%, var(--line)); }
+
+  /* kill chain */
+  .section-label { font-family:var(--mono); font-size:.74rem; letter-spacing:.12em; text-transform:uppercase;
+                   color:var(--muted); margin:30px 0 12px; }
+  .chain { display:flex; gap:8px; flex-wrap:wrap; }
+  .stage { flex:1 1 150px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .stage .k { font-family:var(--mono); font-size:.7rem; color:var(--accent-ink); text-transform:uppercase; letter-spacing:.08em; }
+  .stage .v { font-weight:600; font-family:var(--disp); font-size:.95rem; }
+  .stage .d { font-size:.78rem; color:var(--muted); }
+
+  /* scenario cards */
+  .cards { display:grid; grid-template-columns:1fr; gap:16px; margin-top:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; }
+  .card-top { display:flex; align-items:flex-start; gap:12px; padding:16px 18px 10px; flex-wrap:wrap; }
+  .sev { width:4px; align-self:stretch; border-radius:4px; background:var(--muted); }
+  .card.lvl-crit .sev { background:var(--crit); } .card.lvl-high .sev{ background:var(--warn);} .card.lvl-med .sev{ background:var(--accent);}
+  .cmd-name { font-family:var(--mono); font-weight:500; font-size:.95rem; }
+  .title-wrap { flex:1 1 auto; min-width:0; }
+  .title-wrap h3 { font-family:var(--disp); font-weight:600; margin:2px 0 0; font-size:1.18rem; letter-spacing:-.01em; }
+  .badges { display:flex; gap:7px; flex-wrap:wrap; align-items:center; }
+  .mitre { font-family:var(--mono); font-size:.72rem; border:1px solid var(--line); background:var(--panel-2); padding:3px 7px; border-radius:6px; color:var(--muted); }
+  .fired { font-family:var(--mono); font-size:.72rem; font-weight:500; padding:3px 9px; border-radius:999px; display:inline-flex; align-items:center; gap:6px; }
+  .fired.yes { color:var(--good); border:1px solid color-mix(in srgb,var(--good) 45%,var(--line)); background:color-mix(in srgb,var(--good) 12%,transparent); }
+  .fired.no  { color:var(--warn); border:1px solid color-mix(in srgb,var(--warn) 45%,var(--line)); background:color-mix(in srgb,var(--warn) 12%,transparent); }
+  .fired .d2 { width:7px;height:7px;border-radius:50%;background:currentColor; }
+  .card-body { padding:4px 18px 18px; display:grid; gap:14px; }
+  .target { font-size:.86rem; color:var(--muted); }
+  .target b { color:var(--ink); font-weight:600; font-family:var(--mono); font-size:.82rem; }
+  .block-label { font-family:var(--mono); font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:5px; }
+  pre.code { margin:0; background:var(--panel-2); border:1px solid var(--line); border-radius:9px; padding:11px 13px;
+       font-family:var(--mono); font-size:.8rem; color:var(--ink); overflow-x:auto; line-height:1.5; }
+  pre.code .c { color:var(--muted); }
+  pre.code .a { color:var(--accent-ink); }
+  .alert-line { background:var(--panel-2); border:1px solid var(--line); border-left:3px solid var(--crit); border-radius:0 9px 9px 0; padding:10px 13px; }
+  .card.lvl-high .alert-line{ border-left-color:var(--warn);} .card.lvl-med .alert-line{ border-left-color:var(--accent);}
+  .alert-head { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
+  .ridchip { font-family:var(--mono); font-size:.72rem; color:var(--accent-ink); border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line)); padding:2px 7px; border-radius:6px; }
+  .lvlchip { font-family:var(--mono); font-size:.72rem; color:var(--muted); }
+  .alert-desc { font-weight:600; font-size:.92rem; }
+  .logline { font-family:var(--mono); font-size:.74rem; color:var(--muted); margin-top:6px; white-space:pre-wrap; word-break:break-word; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:620px){ .two{ grid-template-columns:1fr; } .topo-grid{ min-width:420px; } }
+  .mini-h { font-family:var(--disp); font-weight:600; font-size:.9rem; margin-bottom:3px; }
+  .mini-h.real { color:var(--crit); } .mini-h.def { color:var(--good); }
+  .mini-p { font-size:.85rem; color:var(--muted); margin:0; }
+  footer { margin-top:40px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:.8rem; }
+  footer code { font-family:var(--mono); color:var(--accent-ink); }
+  a { color:var(--accent-ink); }
+  @media (prefers-reduced-motion:no-preference){ .fired.yes .d2{ animation:pulse 2s infinite; } }
+  @keyframes pulse{ 0%,100%{ opacity:1 } 50%{ opacity:.4 } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="hbar">
+      <span class="brand"><span class="dot"></span>IR&nbsp;Lab · <b>Attack Range</b></span>
+      <div class="statuses" id="statuses"></div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="eyebrow">Wazuh SIEM · MITRE ATT&amp;CK · one-PC incident-response range</div>
+    <h1>Five attacks, launched and caught — on purpose</h1>
+    <p class="lede">A tiny fake company on a single PC. Each attack below was run live against
+      its own machines; every alert here is a real detection pulled from the Wazuh indexer,
+      not a mock-up. Run the attack, watch it land, investigate, reset.</p>
+    <div class="meta-row" id="metarow"></div>
+  </section>
+
+  <div class="topo">
+    <div class="topo-grid">
+      <div class="node attacker span3"><span class="n">Attacker + analyst</span> ·
+        <span class="ip">host PC → irlab-wan (NAT)</span>
+        <div class="r">launches <code>./lab attack</code>, watches the dashboard over the out-of-band mgmt network</div></div>
+      <div class="node span3"><span class="n">pfSense</span> <span class="ip">10.20.0.1 / 10.19.0.2</span>
+        <div class="r">firewall · router · DHCP · DNS · forwards its drop log to Wazuh by syslog</div></div>
+      <div class="node"><span class="n">web01</span> <div class="ip">10.20.0.10</div><div class="r">web server · agent</div></div>
+      <div class="node"><span class="n">office01</span> <div class="ip">10.20.0.20</div><div class="r">workstation · agent</div></div>
+      <div class="node"><span class="n">wazuh</span> <div class="ip">10.20.0.30</div><div class="r">manager · indexer · dashboard</div></div>
+    </div>
+  </div>
+
+  <div class="section-label">How a real intrusion chains — the lab scenarios in sequence</div>
+  <div class="chain">
+    <div class="stage"><div class="k">Recon</div><div class="v">Port scan</div><div class="d">map what's alive</div></div>
+    <div class="stage"><div class="k">Access</div><div class="v">SSH brute force</div><div class="d">guess a password</div></div>
+    <div class="stage"><div class="k">Exploit</div><div class="v">Web attack</div><div class="d">SQLi / traversal</div></div>
+    <div class="stage"><div class="k">Persist</div><div class="v">New admin</div><div class="d">a way back in</div></div>
+    <div class="stage"><div class="k">Impact</div><div class="v">File tamper</div><div class="d">backdoor / deface</div></div>
+  </div>
+
+  <div class="section-label">The scenarios — attack, detection, and defence</div>
+  <div class="cards" id="cards"></div>
+
+  <footer>
+    Built from code: <code>./lab up</code> stands up the whole range, <code>./lab attack &lt;name&gt;</code>
+    runs a scenario, <code>./lab check &lt;name&gt;</code> confirms the alert, <code>./lab reset</code>
+    returns to a clean snapshot. Full walk-through in <code>docs/field-guide.md</code>.
+    <span id="genstamp"></span>
+  </footer>
+</div>
+
+<script>
+/* DATA — static scenario docs; the `live` fields are filled from the real capture. */
+const SCENARIOS = [
+  {
+    name:"ssh-bruteforce", title:"SSH brute force", mitre:"T1110", level:"high",
+    target:"office01 · 10.20.0.20 (through pfSense)",
+    cmd:[["# attacker, from the host — guess jdoe's password, then log in",1],
+         ["hydra -l jdoe -P rockyou.txt ssh://10.20.0.20",0]],
+    real:"An SSH port exposed to the internet is found (Shodan lists millions) and hammered with a password list. Weak password = instant shell, no exploit needed. One of the most common ways servers fall.",
+    defend:"Keys not passwords (PasswordAuthentication no), fail2ban to ban after N tries, MFA, and alert on the real tell: a failure flood immediately followed by a success.",
+    live:{} // filled
+  },
+  {
+    name:"port-scan", title:"Port scan", mitre:"T1046", level:"med",
+    target:"LAN 10.20.0.0/27 · pfSense drops most",
+    cmd:[["# attacker recon — knock on the top 100 ports of every host",1],
+         ["nmap -sT -Pn -T4 --top-ports 100 10.20.0.0/27",0]],
+    real:"Reconnaissance: before attacking, map which IPs answer and which ports listen — digitally trying every door handle on the street. Harmless alone, but a scan from an unexpected source is often the first visible move of a break-in.",
+    defend:"Default-deny at the firewall so scans find almost nothing. Alert on scan patterns — and treat one internal host scanning its neighbours as a strong sign an attacker is already inside.",
+    live:{}
+  },
+  {
+    name:"new-admin", title:"New admin account", mitre:"T1136.001", level:"crit",
+    target:"office01 · attacker already inside",
+    cmd:[["# attacker with a foothold creates a way back in",1],
+         ["useradd -m -s /bin/bash svc-backup",0],
+         ["usermod -aG sudo svc-backup   ",0],["# now an administrator",1]],
+    real:"Persistence. After getting in, the attacker fears losing access, so they create their own admin account — named to look like a boring service account. Teams often patch the hole but forget to check who can log in now.",
+    defend:"Alert on every account creation and every addition to a privileged group — rare in normal ops, so low noise and high signal. In IR, always enumerate accounts before calling an eviction done.",
+    live:{}
+  },
+  {
+    name:"web-attack", title:"Web attack (SQLi + traversal)", mitre:"T1190", level:"high",
+    target:"web01 · 10.20.0.10 (through pfSense)",
+    cmd:[["# automated scanner payloads at the public app",1],
+         ["GET /order?id=1' OR '1'='1",0],
+         ["GET /order?id=1 UNION SELECT username,password FROM users--",0],
+         ["GET /../../../../etc/passwd        ",0],["# path traversal",1]],
+    real:"Attacking the public-facing app — the single biggest breach category, because web apps are reachable by everyone. SQLi can dump the whole customer database; traversal leaks credentials and config. Scanners fire thousands of these per minute.",
+    defend:"Parameterised queries (the actual SQLi fix), a WAF in front for defence-in-depth, strict path validation, and alert on scanner User-Agents + injection signatures. Patch public apps fast.",
+    live:{}
+  },
+  {
+    name:"file-tamper", title:"File tampering", mitre:"T1565.001", level:"crit",
+    target:"office01 + web01 · attacker already inside",
+    cmd:[["# hidden uid-0 (root) account + website defacement",1],
+         ["echo 'sysupdate:x:0:0::/root:/bin/bash' >> /etc/passwd",0],
+         ["echo '<!-- owned -->' >> /var/www/html/index.html",0]],
+    real:"Data and system manipulation: plant a backdoor (a uid-0 line, a cron job), deface a site, or quietly alter data and logs. The common thread — a file that should be static suddenly isn't, and without integrity monitoring you never notice.",
+    defend:"File Integrity Monitoring on files that never change on their own (/etc/passwd, authorized_keys, web roots, cron, binaries). Immutable deploys for web content. A changed passwd means something already had root — find the foothold.",
+    live:{}
+  }
+];
+
+/* LIVE_DATA is replaced with the real capture before publishing. */
+const LIVE_DATA = {"ssh-bruteforce": {"fired": true, "rule_ids": ["5551", "5760"], "sample": {"level": 10, "description": "PAM: Multiple failed logins in a small period of time.", "full_log": "Nov 12 19:02:21 office01 sshd[2156]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=10.19.0.1  user=jdoe", "srcip": "10.19.0.1", "srcuser": null, "agent": "office01"}}, "port-scan": {"fired": false, "rule_ids": [], "sample": null}, "new-admin": {"fired": true, "rule_ids": ["5403", "5902"], "sample": {"level": 8, "description": "New user added to the system.", "full_log": "Nov 12 19:06:17 office01 useradd[2334]: new user: name=svc-backup, UID=1002, GID=1002, home=/home/svc-backup, shell=/bin/bash, from=none", "srcip": null, "srcuser": null, "agent": "office01"}}, "web-attack": {"fired": true, "rule_ids": ["31103", "31104"], "sample": {"level": 6, "description": "Common web attack.", "full_log": "10.19.0.1 - - [12/Nov/2026:19:06:29 +0000] \"GET /index.php?page=../../../../etc/shadow HTTP/1.1\" 404 162 \"-\" \"sqlmap/1.8\"", "srcip": "10.19.0.1", "srcuser": null, "agent": "web01"}}, "file-tamper": {"fired": true, "rule_ids": ["550"], "sample": {"level": 7, "description": "Integrity checksum changed.", "full_log": "File '/var/www/html/index.html' modified", "srcip": null, "srcuser": null, "agent": "web01"}}};
+const STATUS = [{"k": "pfSense", "v": "up"}, {"k": "web01", "v": "agent active"}, {"k": "office01", "v": "agent active"}, {"k": "Wazuh", "v": "4.14.10"}, {"k": "Captured", "v": "2026-11-12"}];
+
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+// status chips
+const sdiv = document.getElementById('statuses');
+sdiv.innerHTML = STATUS.map(s=>`<span class="chip">${esc(s.k)} <b>${esc(s.v)}</b></span>`).join('');
+document.getElementById('metarow').innerHTML =
+  `<span>SIEM&nbsp;<b>Wazuh ${esc(STATUS.find(x=>x.k==='Wazuh')?.v||'4.14')}</b></span>`+
+  `<span>Scenarios&nbsp;<b>${SCENARIOS.length}</b></span>`+
+  `<span>Alerts fired&nbsp;<b>${SCENARIOS.filter(s=>(LIVE_DATA[s.name]||{}).fired).length}/${SCENARIOS.length}</b></span>`+
+  `<span>Captured&nbsp;<b>${esc(STATUS.find(x=>x.k==='Captured')?.v||'')}</b></span>`;
+
+const cards = document.getElementById('cards');
+cards.innerHTML = SCENARIOS.map(s=>{
+  const L = LIVE_DATA[s.name] || {};
+  const fired = !!L.fired;
+  const rids = (L.rule_ids&&L.rule_ids.length?L.rule_ids:s /*fallback*/ && []);
+  const a = L.sample || null;
+  const code = s.cmd.map(([t,isc])=>isc?`<span class="c">${esc(t)}</span>`:esc(t)).join("\n");
+  const ridHtml = (L.rule_ids||[]).map(r=>`<span class="ridchip">rule ${esc(r)}</span>`).join(' ');
+  return `<article class="card lvl-${s.level}">
+    <div class="card-top">
+      <div class="sev"></div>
+      <div class="title-wrap">
+        <div class="cmd-name">./lab attack ${esc(s.name)}</div>
+        <h3>${esc(s.title)}</h3>
+      </div>
+      <div class="badges">
+        <span class="mitre">MITRE ${esc(s.mitre)}</span>
+        <span class="fired ${fired?'yes':'no'}"><span class="d2"></span>${fired?'ALERT FIRED':'tune rule'}</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="target">Target&nbsp; <b>${esc(s.target)}</b></div>
+      <div>
+        <div class="block-label">What the attacker runs</div>
+        <pre class="code">${code}</pre>
+      </div>
+      <div>
+        <div class="block-label">What Wazuh saw</div>
+        <div class="alert-line">
+          <div class="alert-head">${ridHtml||'<span class="ridchip">—</span>'}${a?`<span class="lvlchip">level ${esc(a.level)}</span>`:''}</div>
+          <div class="alert-desc">${a?esc(a.description):'No alert captured yet — rule needs tuning for this build.'}</div>
+          ${a&&a.full_log?`<div class="logline">${esc(a.full_log)}</div>`:''}
+          ${a&&(a.srcip||a.srcuser)?`<div class="logline">source: ${esc(a.srcip||'?')}${a.srcuser?' · user '+esc(a.srcuser):''} · agent ${esc(a.agent||'')}</div>`:''}
+        </div>
+      </div>
+      <div class="two">
+        <div><div class="mini-h real">In the real world</div><p class="mini-p">${esc(s.real)}</p></div>
+        <div><div class="mini-h def">How you defend</div><p class="mini-p">${esc(s.defend)}</p></div>
+      </div>
+    </div>
+  </article>`;
+}).join('');
+document.getElementById('genstamp').textContent =
+  ' · captured ' + (STATUS.find(x=>x.k==='Captured')?.v||'');
+</script>

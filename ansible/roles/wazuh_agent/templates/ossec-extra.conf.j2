@@ -1,3 +1,9 @@
+<!-- Ubuntu's auth log in syslog format, so useradd/sudo fire their own rules
+     (e.g. 5902 new user) — the default journald input doesn't match them. -->
+<localfile>
+  <log_format>syslog</log_format>
+  <location>/var/log/auth.log</location>
+</localfile>
 {% if inventory_hostname == 'web01' %}
 <localfile>
   <log_format>apache</log_format>
