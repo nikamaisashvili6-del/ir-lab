@@ -1,0 +1,4 @@
+---
+# Registered results stay short and local to each role; the prefix rule adds noise here.
+skip_list:
+  - var-naming[no-role-prefix]

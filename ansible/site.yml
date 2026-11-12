@@ -18,3 +18,27 @@
   roles:
     - role: pfsense
       tags: [pfsense]
+
+- name: Create the Debian VMs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  roles:
+    - role: base
+      tags: [vms]
+
+- name: Configure web01
+  hosts: web01
+  become: true
+  roles:
+    - role: web01
+      tags: [web01]
+
+- name: Configure office01
+  hosts: office01
+  become: true
+  roles:
+    - role: office01
+      tags: [office01]

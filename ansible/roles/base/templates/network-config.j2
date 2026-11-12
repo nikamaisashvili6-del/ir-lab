@@ -1,0 +1,17 @@
+version: 2
+ethernets:
+  lan:
+    match:
+      macaddress: "{{ vm_lan_mac }}"
+    set-name: lan0
+    addresses: [10.20.0.{{ vm.last_octet }}/24]
+    routes:
+      - to: default
+        via: 10.20.0.1
+    nameservers:
+      addresses: [10.20.0.1]
+  mgmt:
+    match:
+      macaddress: "{{ vm_mgmt_mac }}"
+    set-name: mgmt0
+    addresses: [10.21.0.{{ vm.last_octet }}/24]

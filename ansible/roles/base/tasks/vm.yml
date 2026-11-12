@@ -1,0 +1,73 @@
+---
+- name: "Check whether the VM exists: {{ vm.name }}"
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", dominfo, "irlab-{{ vm.name }}"]
+  register: vm_info
+  changed_when: false
+  failed_when: false
+
+- name: "Set MAC addresses for {{ vm.name }}"
+  ansible.builtin.set_fact:
+    # Fixed MACs let cloud-init pick the right card for LAN and mgmt.
+    vm_lan_mac: "52:54:00:20:00:{{ '%02x' | format(vm.last_octet) }}"
+    vm_mgmt_mac: "52:54:00:21:00:{{ '%02x' | format(vm.last_octet) }}"
+
+- name: "Create a linked-clone disk for {{ vm.name }}"
+  ansible.builtin.command:
+    argv:
+      - qemu-img
+      - create
+      - -q
+      - -f
+      - qcow2
+      - -F
+      - qcow2
+      - -b
+      - "{{ lab_root }}/base/{{ vm.image }}"
+      - "{{ lab_root }}/disks/irlab-{{ vm.name }}.qcow2"
+      - "{{ vm.disk }}"
+    creates: "{{ lab_root }}/disks/irlab-{{ vm.name }}.qcow2"
+
+- name: "Render cloud-init for {{ vm.name }}"
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ lab_state_dir }}/{{ vm.name }}-{{ item }}"
+    mode: "0600"
+  loop: [user-data, network-config]
+  vars:
+    lab_pubkey: "{{ lookup('ansible.builtin.file', lab_state_dir ~ '/id_ed25519.pub') }}"
+
+- name: "Create the VM irlab-{{ vm.name }}"
+  ansible.builtin.command:
+    argv:
+      - virt-install
+      - --connect
+      - "{{ virsh_uri }}"
+      - --name
+      - "irlab-{{ vm.name }}"
+      - --memory
+      - "{{ vm.memory | string }}"
+      - --vcpus
+      - "2"
+      - --import
+      - --disk
+      - "path={{ lab_root }}/disks/irlab-{{ vm.name }}.qcow2,format=qcow2,bus=virtio"
+      - --network
+      - "network=irlab-lan,model=virtio,mac={{ vm_lan_mac }}"
+      - --network
+      - "network=irlab-mgmt,model=virtio,mac={{ vm_mgmt_mac }}"
+      - --osinfo
+      - debian12
+      - --cloud-init
+      - "user-data={{ lab_state_dir }}/{{ vm.name }}-user-data,network-config={{ lab_state_dir }}/{{ vm.name }}-network-config"
+      - --graphics
+      - none
+      - --noautoconsole
+  when: vm_info.rc != 0
+  changed_when: true
+
+- name: "Wait for SSH on {{ vm.name }}"
+  ansible.builtin.wait_for:
+    host: "10.21.0.{{ vm.last_octet }}"
+    port: 22
+    timeout: 300

@@ -1,0 +1,19 @@
+---
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Put up the company page
+  ansible.builtin.copy:
+    src: index.html
+    dest: /var/www/html/index.html
+    mode: "0644"
+
+- name: Keep nginx running
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

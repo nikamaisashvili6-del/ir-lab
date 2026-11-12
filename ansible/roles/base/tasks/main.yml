@@ -1,0 +1,8 @@
+---
+# Creates the Debian VMs on the host. Runs once per entry in lab_vms (see vm.yml).
+- name: Create each Debian VM
+  ansible.builtin.include_tasks: vm.yml
+  loop: "{{ lab_vms }}"
+  loop_control:
+    loop_var: vm
+    label: "{{ vm.name }}"

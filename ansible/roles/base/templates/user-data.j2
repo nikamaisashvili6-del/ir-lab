@@ -1,0 +1,13 @@
+#cloud-config
+hostname: {{ vm.name }}
+fqdn: {{ vm.name }}.irlab.local
+manage_etc_hosts: true
+users:
+  - name: labadmin
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - {{ lab_pubkey }}
+ssh_pwauth: false
+package_update: false
