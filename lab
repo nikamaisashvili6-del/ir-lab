@@ -6,9 +6,12 @@ import json
 import os
 import shlex
 import shutil
+import ssl
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -17,6 +20,12 @@ sys.path.insert(0, str(ROOT))
 from attacks.registry import SCENARIOS  # noqa: E402
 
 STATE_PATH = ROOT / ".lab" / "state.json"
+LAB_STATE_DIR = ROOT / ".lab"
+VIRSH_URI = "qemu:///system"
+# Firewall first so the others get a network, Wazuh before the agents that report to it.
+BOOT_ORDER = ("irlab-pfsense", "irlab-wazuh", "irlab-web01", "irlab-office01")
+MGMT_IP = {"wazuh": "10.21.0.30", "web01": "10.21.0.10", "office01": "10.21.0.20"}
+AGENTS = ("web01", "office01")
 VENV = ROOT / ".venv"
 F_UUID = "aae55af8-a3c4-4fad-ac70-4dfa00506615"
 F_DEVICE = "/dev/nvme0n1p1"
@@ -171,6 +180,219 @@ def run_ansible(tags: list[str] | None = None) -> int:
         argv += ["--tags", ",".join(tags)]
     return subprocess.run(argv, cwd=ROOT / "ansible").returncode
 
+# ---------------------------------------------------------------- virsh and SSH
+
+
+def virsh(*args: str, check: bool = True) -> str:
+    """Run one virsh command against the system libvirt and return its output."""
+    result = subprocess.run(
+        ["virsh", "-c", VIRSH_URI, *args], capture_output=True, text=True
+    )
+    if check and result.returncode != 0:
+        raise RuntimeError(f"virsh {' '.join(args)}: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def mgmt_ssh(host: str, command: str, stdin: str = "", timeout: int = 30) -> subprocess.CompletedProcess:
+    """Run a command on a lab VM as labadmin over the management network."""
+    argv = [
+        "ssh", "-i", str(LAB_STATE_DIR / "id_ed25519"),
+        "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+        "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        f"labadmin@{MGMT_IP[host]}", command,
+    ]
+    try:
+        return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, 255, "", "timed out")
+
+
+def read_secret(name: str) -> str:
+    """Read one value from .lab/secrets.yml (flat 'key: "value"' lines)."""
+    for line in (LAB_STATE_DIR / "secrets.yml").read_text().splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == name:
+            return value.strip().strip('"')
+    raise KeyError(name)
+
+
+def domstate(domain: str) -> str:
+    return virsh("domstate", domain, check=False) or "missing"
+
+
+def has_clean_snapshot(domain: str) -> bool:
+    return "clean" in virsh("snapshot-list", domain, "--name", check=False).splitlines()
+
+
+# ---------------------------------------------------------------- Wazuh queries
+
+
+def query_wazuh(rule_ids, agent: str, since: str) -> list[dict]:
+    """Search the indexer on the wazuh VM. The password goes over stdin, never argv."""
+    body = json.dumps(build_alert_query(rule_ids, agent, since))
+    script = (
+        "set -e\n"
+        f"cat > /tmp/irlab-query.json <<'EOF'\n{body}\nEOF\n"
+        'read -r PW\n'
+        'printf \'user = "admin:%s"\\n\' "$PW" | curl -sk -K - '
+        "-H 'Content-Type: application/json' "
+        "--data-binary @/tmp/irlab-query.json "
+        "'https://127.0.0.1:9200/wazuh-alerts-*/_search'\n"
+    )
+    result = mgmt_ssh("wazuh", "bash -c " + shlex.quote(script),
+                      stdin=read_secret("wazuh_admin_password") + "\n")
+    if result.returncode != 0:
+        return []
+    try:
+        return [hit["_source"] for hit in json.loads(result.stdout)["hits"]["hits"]]
+    except (ValueError, KeyError):
+        return []
+
+
+def agent_states() -> dict[str, str]:
+    """Agent name -> status, as the Wazuh manager sees them. Empty if unreachable."""
+    result = mgmt_ssh("wazuh", "sudo /var/ossec/bin/agent_control -l", timeout=15)
+    states = {}
+    for line in result.stdout.splitlines():
+        # "   ID: 001, Name: web01, IP: any, Active"
+        if "Name:" in line:
+            parts = [p.strip() for p in line.split(",")]
+            name = parts[1].removeprefix("Name:").strip()
+            states[name] = parts[-1]
+    return states
+
+
+def wait_agents(timeout: int = 420) -> bool:
+    """Wait until every agent reports Active."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        states = agent_states()
+        if all(states.get(a, "").startswith("Active") for a in AGENTS):
+            return True
+        time.sleep(10)
+    return False
+
+
+def dashboard_up() -> bool:
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    try:
+        urllib.request.urlopen(f"https://{MGMT_IP['wazuh']}", timeout=5, context=context)
+        return True
+    except urllib.error.HTTPError:
+        return True  # it answered, even if with a login redirect or 401
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------- lifecycle
+
+
+def shutdown_all(timeout: int = 180) -> None:
+    """Shut VMs down gracefully, then pull the plug on any that hang."""
+    for domain in reversed(BOOT_ORDER):
+        if domstate(domain) == "running":
+            virsh("shutdown", domain, check=False)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if all(domstate(d) != "running" for d in BOOT_ORDER):
+            return
+        time.sleep(3)
+    for domain in BOOT_ORDER:
+        if domstate(domain) == "running":
+            virsh("destroy", domain, check=False)
+
+
+def start_all() -> None:
+    for domain in BOOT_ORDER:
+        if domstate(domain) != "running":
+            virsh("start", domain)
+
+
+def take_clean_snapshots() -> None:
+    """Take a shut-off 'clean' snapshot of each VM that doesn't have one yet."""
+    missing = [d for d in BOOT_ORDER if not has_clean_snapshot(d)]
+    if not missing:
+        return
+    shutdown_all()
+    for domain in missing:
+        virsh("snapshot-create-as", domain, "clean", "--atomic")
+        print(f"Snapshot 'clean' taken for {domain}.")
+
+
+def reset() -> int:
+    """Revert every VM to 'clean'. Checks all snapshots before touching anything."""
+    missing = [d for d in BOOT_ORDER if not has_clean_snapshot(d)]
+    if missing:
+        print(f"Cannot reset: no 'clean' snapshot for {', '.join(missing)}. Run ./lab up first.")
+        return 1
+    for domain in BOOT_ORDER:
+        if domstate(domain) == "running":
+            virsh("destroy", domain, check=False)  # a hard stop is fine: we revert next
+    for domain in BOOT_ORDER:
+        virsh("snapshot-revert", domain, "clean")
+    clear_state()
+    start_all()
+    print("VMs reverted and started. Waiting for agents...")
+    if not wait_agents():
+        print("Agents did not report Active in time. Try ./lab status in a minute.")
+        return 1
+    print("Lab is clean.")
+    return 0
+
+
+def status() -> int:
+    for domain in BOOT_ORDER:
+        print(f"  {domain:16} {domstate(domain)}")
+    if domstate("irlab-wazuh") == "running":
+        states = agent_states()
+        for agent in AGENTS:
+            print(f"  agent {agent:10} {states.get(agent, 'unknown')}")
+        print(f"  dashboard        {'up' if dashboard_up() else 'not answering'}"
+              f" (https://{MGMT_IP['wazuh']})")
+    return 0
+
+
+def destroy_targets(domains: list[str], nets: list[str], pools: list[str]) -> dict[str, list[str]]:
+    """Pick only lab objects. Anything without the irlab prefix is never selected."""
+    return {
+        "domains": [d for d in domains if d.startswith("irlab-")],
+        "networks": [n for n in nets if n.startswith("irlab-")],
+        "pools": [p for p in pools if p == "irlab"],
+    }
+
+
+def destroy(confirm_fn=input) -> int:
+    targets = destroy_targets(
+        virsh("list", "--all", "--name").splitlines(),
+        virsh("net-list", "--all", "--name").splitlines(),
+        virsh("pool-list", "--all", "--name").splitlines(),
+    )
+    mount = find_mount()
+    lab_dir = Path(mount) / "ir-lab" if mount else None
+    print("This removes, for good:")
+    for kind, names in targets.items():
+        print(f"  {kind}: {', '.join(names) or '(none)'}")
+    print(f"  files: {lab_dir if lab_dir else '(linux F not mounted, files kept)'}")
+    if confirm_fn("Type destroy to go ahead: ") != "destroy":
+        print("Nothing removed.")
+        return 1
+    for domain in targets["domains"]:
+        virsh("destroy", domain, check=False)
+        virsh("undefine", domain, "--snapshots-metadata", "--remove-all-storage", check=False)
+    for net in targets["networks"]:
+        virsh("net-destroy", net, check=False)
+        virsh("net-undefine", net, check=False)
+    for pool in targets["pools"]:
+        virsh("pool-destroy", pool, check=False)
+        virsh("pool-undefine", pool, check=False)
+    if lab_dir and lab_dir.name == "ir-lab" and lab_dir.is_dir():
+        shutil.rmtree(lab_dir)
+    print("Lab removed.")
+    return 0
+
 
 def cmd_up(args) -> int:
     mount = find_mount()
@@ -188,7 +410,12 @@ def cmd_up(args) -> int:
         return 1
     ensure_venv()
     tags = args.tags.split(",") if args.tags else None
-    return run_ansible(tags)
+    rc = run_ansible(tags)
+    if rc != 0 or tags:
+        return rc
+    take_clean_snapshots()
+    start_all()
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -209,6 +436,17 @@ def main(argv: list[str]) -> int:
         return 2
     if args.command == "up":
         return cmd_up(args)
+    if args.command == "status":
+        return status()
+    if args.command == "reset":
+        return reset()
+    if args.command == "down":
+        shutdown_all()
+        return 0
+    if args.command == "destroy":
+        return destroy()
+    if args.command == "check":
+        return check(args.scenario, query_wazuh)
     print(f"{args.command}: not built yet")
     return 1
 
