@@ -1,4 +1,18 @@
-<network>
+<network xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
   <name>irlab-lan</name>
   <bridge name='irlablan0' stp='on' delay='0'/>
+  <ip address='10.20.0.254' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='10.20.0.100' end='10.20.0.200'/>
+      <host mac='52:54:00:20:00:0a' ip='10.20.0.10'/>
+      <host mac='52:54:00:20:00:14' ip='10.20.0.20'/>
+      <host mac='52:54:00:20:00:1e' ip='10.20.0.30'/>
+    </dhcp>
+  </ip>
+  <!-- VMs route to the internet through pfSense (.1); DNS is answered by this
+       network's own dnsmasq (.254), which forwards to the host's resolver. -->
+  <dnsmasq:options>
+    <dnsmasq:option value='dhcp-option=option:router,10.20.0.1'/>
+    <dnsmasq:option value='dhcp-option=option:dns-server,10.20.0.254'/>
+  </dnsmasq:options>
 </network>

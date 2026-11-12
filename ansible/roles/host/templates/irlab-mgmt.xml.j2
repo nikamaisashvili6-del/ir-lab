@@ -1,7 +1,20 @@
-<network>
+<network xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
   <name>irlab-mgmt</name>
   <bridge name='irlabmgmt0' stp='on' delay='0'/>
   <port isolated='yes'/>
   <dns enable='no'/>
-  <ip address='10.21.0.254' netmask='255.255.255.0'/>
+  <ip address='10.21.0.254' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='10.21.0.100' end='10.21.0.200'/>
+      <host mac='52:54:00:21:00:0a' ip='10.21.0.10'/>
+      <host mac='52:54:00:21:00:14' ip='10.21.0.20'/>
+      <host mac='52:54:00:21:00:1e' ip='10.21.0.30'/>
+    </dhcp>
+  </ip>
+  <!-- mgmt is management-only: hand out an IP but no default route (3) and no DNS (6),
+       so the LAN side alone provides the gateway and resolver. -->
+  <dnsmasq:options>
+    <dnsmasq:option value='dhcp-option=3'/>
+    <dnsmasq:option value='dhcp-option=6'/>
+  </dnsmasq:options>
 </network>

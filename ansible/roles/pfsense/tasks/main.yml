@@ -81,6 +81,13 @@
   when: firewall_vm.rc != 0
   changed_when: true
 
+- name: Make sure the firewall VM is running
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", start, irlab-pfsense]
+  register: pfsense_start
+  changed_when: "'started' in pfsense_start.stdout"
+  failed_when: pfsense_start.rc != 0 and 'already active' not in pfsense_start.stderr
+
 - name: Wait for SSH on the firewall
   ansible.builtin.wait_for:
     host: 10.21.0.1
