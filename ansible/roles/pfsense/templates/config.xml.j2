@@ -81,7 +81,30 @@
 		</opt1>
 	</interfaces>
 	<staticroutes></staticroutes>
-	<dhcpd></dhcpd>
+	<dhcpd>
+		<lan>
+			<enable></enable>
+			<range>
+				<from>10.20.0.100</from>
+				<to>10.20.0.200</to>
+			</range>
+			<staticmap>
+				<mac>52:54:00:20:00:0a</mac>
+				<ipaddr>10.20.0.10</ipaddr>
+				<hostname>web01</hostname>
+			</staticmap>
+			<staticmap>
+				<mac>52:54:00:20:00:14</mac>
+				<ipaddr>10.20.0.20</ipaddr>
+				<hostname>office01</hostname>
+			</staticmap>
+			<staticmap>
+				<mac>52:54:00:20:00:1e</mac>
+				<ipaddr>10.20.0.30</ipaddr>
+				<hostname>wazuh</hostname>
+			</staticmap>
+		</lan>
+	</dhcpd>
 	<dhcpdv6></dhcpdv6>
 	<snmpd>
 		<syslocation></syslocation>
