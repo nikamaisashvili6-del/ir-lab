@@ -1,4 +1,9 @@
 ---
+- name: Wait for cloud-init to finish (disk growth, etc.)
+  ansible.builtin.command: cloud-init status --wait
+  changed_when: false
+  failed_when: false
+
 # Wazuh all-in-one (manager + indexer + dashboard) on one 4 GB VM.
 - name: Load lab secrets
   ansible.builtin.include_vars:

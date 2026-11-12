@@ -1,4 +1,9 @@
 ---
+- name: Wait for cloud-init to finish (disk growth, etc.)
+  ansible.builtin.command: cloud-init status --wait
+  changed_when: false
+  failed_when: false
+
 # office01 is the weak desktop: one user with a guessable password and SSH open to it.
 - name: Install fail2ban, left off because turning it on is the trainee fix
   ansible.builtin.apt:

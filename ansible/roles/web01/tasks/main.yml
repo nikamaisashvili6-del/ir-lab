@@ -1,4 +1,9 @@
 ---
+- name: Wait for cloud-init to finish (disk growth, etc.)
+  ansible.builtin.command: cloud-init status --wait
+  changed_when: false
+  failed_when: false
+
 - name: Install nginx
   ansible.builtin.apt:
     name: nginx
