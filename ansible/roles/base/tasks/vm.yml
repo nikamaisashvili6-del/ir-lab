@@ -57,7 +57,7 @@
       - -J
       - -r
       - -o
-      - "{{ lab_state_dir }}/{{ vm.name }}-seed.iso"
+      - "{{ lab_root }}/seeds/{{ vm.name }}-seed.iso"
       - "{{ lab_state_dir }}/seed-{{ vm.name }}/meta-data"
       - "{{ lab_state_dir }}/seed-{{ vm.name }}/user-data"
       - "{{ lab_state_dir }}/seed-{{ vm.name }}/network-config"
@@ -79,7 +79,7 @@
       - --disk
       - "path={{ lab_root }}/disks/irlab-{{ vm.name }}.qcow2,format=qcow2,bus=virtio"
       - --disk
-      - "path={{ lab_state_dir }}/{{ vm.name }}-seed.iso,device=cdrom,readonly=on"
+      - "path={{ lab_root }}/seeds/{{ vm.name }}-seed.iso,device=cdrom,readonly=on"
       - --network
       - "network=irlab-lan,model=virtio,mac={{ vm_lan_mac }}"
       - --network

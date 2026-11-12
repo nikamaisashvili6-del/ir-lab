@@ -10,8 +10,8 @@ debian_image_dir: https://cloud.debian.org/images/cloud/trixie/20261111-2659
 debian_image_name: debian-13-generic-amd64-20261111-2659.qcow2
 # The three Debian VMs. last_octet is the same on LAN (10.20.0.x) and mgmt (10.21.0.x).
 lab_vms:
-  - {name: web01, last_octet: 10, memory: 768, disk: 6G, image: "{{ ubuntu_image_name }}", osinfo: ubuntu24.04}
-  - {name: office01, last_octet: 20, memory: 512, disk: 6G, image: "{{ ubuntu_image_name }}", osinfo: ubuntu24.04}
+  - {name: web01, last_octet: 10, memory: 1024, disk: 6G, image: "{{ ubuntu_image_name }}", osinfo: ubuntu24.04}
+  - {name: office01, last_octet: 20, memory: 768, disk: 6G, image: "{{ ubuntu_image_name }}", osinfo: ubuntu24.04}
   - {name: wazuh, last_octet: 30, memory: 4096, disk: 20G, image: "{{ ubuntu_image_name }}", osinfo: ubuntu24.04}
 # Wazuh's server side officially supports Ubuntu, not Debian (docs checked 2026-11-12), so wazuh runs Ubuntu 24.04.
 ubuntu_image_dir: https://cloud-images.ubuntu.com/releases/noble/release
