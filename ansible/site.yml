@@ -32,6 +32,7 @@
 - name: Configure web01
   hosts: web01
   become: true
+  gather_facts: false  # else --tags host still tries to reach VMs that don't exist yet
   roles:
     - role: web01
       tags: [web01]
@@ -39,6 +40,7 @@
 - name: Configure office01
   hosts: office01
   become: true
+  gather_facts: false  # else --tags host still tries to reach VMs that don't exist yet
   roles:
     - role: office01
       tags: [office01]
@@ -46,6 +48,7 @@
 - name: Install Wazuh
   hosts: wazuh
   become: true
+  gather_facts: false  # else --tags host still tries to reach VMs that don't exist yet
   roles:
     - role: wazuh
       tags: [wazuh]
@@ -53,6 +56,7 @@
 - name: Install Wazuh agents
   hosts: web01:office01
   become: true
+  gather_facts: false  # else --tags host still tries to reach VMs that don't exist yet
   roles:
     - role: wazuh_agent
       tags: [agents]
