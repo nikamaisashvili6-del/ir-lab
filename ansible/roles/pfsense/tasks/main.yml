@@ -1,0 +1,116 @@
+---
+- name: Load lab secrets
+  ansible.builtin.include_vars:
+    file: "{{ lab_state_dir }}/secrets.yml"
+
+- name: Check for a stored admin password hash
+  ansible.builtin.stat:
+    path: "{{ lab_state_dir }}/pfsense_bcrypt"
+  register: stored_hash
+
+- name: Hash the admin password
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - "import bcrypt, sys; print(bcrypt.hashpw(sys.stdin.read().encode(), bcrypt.gensalt(10)).decode())"
+    stdin: "{{ pfsense_admin_password }}"
+    stdin_add_newline: false
+  register: new_hash
+  changed_when: true
+  no_log: true
+  when: not stored_hash.stat.exists
+
+- name: Store the admin password hash
+  ansible.builtin.copy:
+    dest: "{{ lab_state_dir }}/pfsense_bcrypt"
+    content: "{{ new_hash.stdout }}"
+    mode: "0600"
+  no_log: true
+  when: not stored_hash.stat.exists
+
+- name: Check whether the firewall VM exists
+  ansible.builtin.command:
+    argv: [virsh, -c, "{{ virsh_uri }}", dominfo, irlab-pfsense]
+  register: firewall_vm
+  changed_when: false
+  failed_when: false
+
+- name: Create the firewall disk as a linked clone
+  ansible.builtin.command:
+    argv:
+      - qemu-img
+      - create
+      - -q
+      - -f
+      - qcow2
+      - -F
+      - qcow2
+      - -b
+      - "{{ lab_root }}/base/pfsense-base.qcow2"
+      - "{{ lab_root }}/disks/irlab-pfsense.qcow2"
+      - 8G
+    creates: "{{ lab_root }}/disks/irlab-pfsense.qcow2"
+
+- name: Create the firewall VM
+  ansible.builtin.command:
+    argv:
+      - virt-install
+      - --connect
+      - "{{ virsh_uri }}"
+      - --name
+      - irlab-pfsense
+      - --memory
+      - "1024"
+      - --vcpus
+      - "2"
+      - --import
+      - --disk
+      - "path={{ lab_root }}/disks/irlab-pfsense.qcow2,format=qcow2,bus=virtio"
+      - --network
+      - network=irlab-wan,model=virtio,address.type=pci,address.slot=0x10
+      - --network
+      - network=irlab-lan,model=virtio,address.type=pci,address.slot=0x11
+      - --network
+      - network=irlab-mgmt,model=virtio,address.type=pci,address.slot=0x12
+      - --osinfo
+      - generic
+      - --graphics
+      - vnc,listen=127.0.0.1
+      - --noautoconsole
+  when: firewall_vm.rc != 0
+  changed_when: true
+
+- name: Wait for SSH on the firewall
+  ansible.builtin.wait_for:
+    host: 10.21.0.1
+    port: 22
+    timeout: 300
+
+- name: Render the firewall config
+  ansible.builtin.template:
+    src: config.xml.j2
+    dest: "{{ lab_state_dir }}/pfsense-config.xml"
+    mode: "0600"
+  vars:
+    pfsense_admin_bcrypt: "{{ lookup('ansible.builtin.file', lab_state_dir ~ '/pfsense_bcrypt') }}"
+    lab_pubkey_b64: "{{ lookup('ansible.builtin.file', lab_state_dir ~ '/id_ed25519.pub') | b64encode }}"
+  register: rendered_config
+
+- name: Apply the config and reboot the firewall
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "{{ role_path }}/files/push_config.py"
+      - "{{ lab_state_dir }}/pfsense-config.xml"
+      - "{{ lab_state_dir }}/id_ed25519"
+  when: rendered_config.changed or firewall_vm.rc != 0
+  changed_when: true
+
+- name: Wait for the firewall to come back
+  ansible.builtin.wait_for:
+    host: 10.21.0.1
+    port: 22
+    delay: 30
+    timeout: 300
+  when: rendered_config.changed or firewall_vm.rc != 0

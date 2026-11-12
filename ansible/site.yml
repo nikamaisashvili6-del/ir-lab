@@ -8,3 +8,13 @@
   roles:
     - role: host
       tags: [host]
+
+- name: Build the firewall
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  roles:
+    - role: pfsense
+      tags: [pfsense]
