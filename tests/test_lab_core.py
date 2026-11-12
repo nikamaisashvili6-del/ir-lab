@@ -24,7 +24,7 @@ def test_preflight_low_memory(lab_cli):
 
 def test_setup_hint_when_unmounted_names_commands(lab_cli):
     hint = lab_cli.setup_hint(None)
-    assert "udisksctl mount -b /dev/nvme0n1p1" in hint
+    assert "udisksctl mount -b /dev/disk/by-uuid/aae55af8-a3c4-4fad-ac70-4dfa00506615" in hint
     assert "setfacl -m u:libvirt-qemu:x" in hint
 
 
