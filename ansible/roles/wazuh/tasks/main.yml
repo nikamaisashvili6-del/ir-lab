@@ -29,6 +29,17 @@
   when: not wazuh_installed.stat.exists
   changed_when: true
 
+- name: Disable vulnerability detection (CVE feed fills the lab disk, not needed here)
+  ansible.builtin.replace:
+    path: /var/ossec/etc/ossec.conf
+    regexp: '(<vulnerability-detection>\s*<enabled>)yes(</enabled>)'
+    replace: '\1no\2'
+  notify: Restart wazuh-manager
+
+- name: Remove the downloaded CVE feed to reclaim disk
+  ansible.builtin.shell: rm -rf /var/ossec/tmp/* /var/ossec/queue/vd* 2>/dev/null; true
+  changed_when: false
+
 - name: Cap the indexer heap at 1.5 GB
   ansible.builtin.lineinfile:
     path: /etc/wazuh-indexer/jvm.options
