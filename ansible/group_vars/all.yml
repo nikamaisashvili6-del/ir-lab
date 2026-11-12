@@ -5,8 +5,9 @@ irlab_networks:
   - irlab-wan
   - irlab-lan
   - irlab-mgmt
-debian_image_dir: https://cloud.debian.org/images/cloud/trixie/latest
-debian_image_name: debian-13-genericcloud-amd64.qcow2
+# Pinned dated build: "latest" changes, and Debian dropped the genericcloud variant in Nov 2026.
+debian_image_dir: https://cloud.debian.org/images/cloud/trixie/20261111-2659
+debian_image_name: debian-13-generic-amd64.qcow2
 # The three Debian VMs. last_octet is the same on LAN (10.20.0.x) and mgmt (10.21.0.x).
 lab_vms:
   - {name: web01, last_octet: 10, memory: 768, disk: 6G, image: "{{ debian_image_name }}", osinfo: debian12}
